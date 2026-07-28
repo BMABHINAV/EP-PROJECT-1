@@ -1,0 +1,138 @@
+version: "3.9"
+
+services:
+  # ─────────────────────────────────────────────
+  # TimescaleDB (PostgreSQL with time-series)
+  # ─────────────────────────────────────────────
+  db:
+    image: timescale/timescaledb:latest-pg15
+    container_name: responder_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: responder
+      POSTGRES_PASSWORD: responder_secret
+      POSTGRES_DB: responder_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U responder -d responder_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─────────────────────────────────────────────
+  # MQTT Broker (Eclipse Mosquitto)
+  # ─────────────────────────────────────────────
+  mqtt:
+    image: eclipse-mosquitto:2.0
+    container_name: responder_mqtt
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # MQTT
+      - "9001:9001"   # WebSocket
+    volumes:
+      - ./gateway/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - mqttdata:/mosquitto/data
+      - mqttlog:/mosquitto/log
+
+  # ─────────────────────────────────────────────
+  # Redis (alert queuing, caching, pub/sub)
+  # ─────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: responder_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redisdata:/data
+
+  # ─────────────────────────────────────────────
+  # FastAPI Backend
+  # ─────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: responder_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://responder:responder_secret@db:5432/responder_db
+      MQTT_BROKER_HOST: mqtt
+      MQTT_BROKER_PORT: 1883
+      REDIS_URL: redis://redis:6379
+      SECRET_KEY: "change_this_in_production_please"
+      DEBUG: "true"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+      redis:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+
+  # ─────────────────────────────────────────────
+  # React Dashboard (dev server)
+  # ─────────────────────────────────────────────
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    container_name: responder_dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+      VITE_WS_URL: ws://localhost:8000
+    volumes:
+      - ./dashboard:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+  # ─────────────────────────────────────────────
+  # Python Sensor Simulator
+  # ─────────────────────────────────────────────
+  simulator:
+    build:
+      context: ./sensor_simulator
+      dockerfile: Dockerfile
+    container_name: responder_simulator
+    restart: unless-stopped
+    environment:
+      MQTT_BROKER_HOST: mqtt
+      MQTT_BROKER_PORT: 1883
+      NUM_RESPONDERS: "5"
+      PUBLISH_INTERVAL_SEC: "2"
+    depends_on:
+      - mqtt
+
+  # ─────────────────────────────────────────────
+  # pgAdmin (Database UI)
+  # ─────────────────────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: responder_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@responder.local
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+
+volumes:
+  pgdata:
+  mqttdata:
+  mqttlog:
+  redisdata:

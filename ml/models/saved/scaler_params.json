@@ -1,0 +1,32 @@
+{
+  "feature_names": [
+    "heart_rate",
+    "spo2",
+    "hrv_ms",
+    "respiration_rate",
+    "body_temp_c",
+    "gas_exposure_index",
+    "motion_intensity",
+    "duration_hours"
+  ],
+  "feature_min": [
+    40,
+    70,
+    0,
+    8,
+    35,
+    0,
+    0,
+    0
+  ],
+  "feature_max": [
+    220,
+    100,
+    120,
+    50,
+    42,
+    1,
+    1,
+    12
+  ]
+}

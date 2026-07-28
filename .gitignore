@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+
+# Databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Build and Dist
+dist/
+build/
+*.egg-info/
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# IDE & Tooling
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environment & Logs
+.env
+.env.local
+*.log
+
+# Expo / Mobile
+.expo/
+.expo-shared/
