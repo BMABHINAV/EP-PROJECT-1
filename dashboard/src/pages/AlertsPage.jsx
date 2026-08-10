@@ -1,138 +1,162 @@
 import { useState } from 'react'
-import { BellRing, CheckCircle, Eye, ShieldAlert } from 'lucide-react'
+import { BellRing, CheckCircle, Eye, ShieldAlert, Filter } from 'lucide-react'
 import useStore from '../store/useStore'
 import { acknowledgeAlert } from '../services/api'
 
-const SEVERITY_ORDER = { critical: 0, warning: 1, info: 2 }
+const SEVERITY_ORDER = { critical:0, warning:1, info:2 }
 
-const SEV_STYLE = {
-  critical: { badge: 'bg-status-critical/10 text-status-critical border-status-critical/30', dot: 'bg-status-critical' },
-  warning:  { badge: 'bg-status-warning/10 text-status-warning border-status-warning/30',   dot: 'bg-status-warning' },
-  info:     { badge: 'bg-brand/10 text-brand border-brand/30',                              dot: 'bg-brand' },
+const SEV = {
+  critical: { icon:'⚠', color:'#EF4444', bg:'rgba(239,68,68,0.12)', border:'rgba(239,68,68,0.35)', glow:'rgba(239,68,68,0.25)', label:'CRITICAL' },
+  warning:  { icon:'⚡', color:'#F59E0B', bg:'rgba(245,158,11,0.12)', border:'rgba(245,158,11,0.35)', glow:'rgba(245,158,11,0.20)', label:'WARNING'  },
+  info:     { icon:'ℹ', color:'#3B82F6', bg:'rgba(59,130,246,0.12)', border:'rgba(59,130,246,0.35)', glow:'rgba(59,130,246,0.15)', label:'INFO'     },
+}
+
+function timeAgo(ts) {
+  if (!ts) return ''
+  const diff = (Date.now()-new Date(ts))/1000
+  if (diff<10)   return 'just now'
+  if (diff<60)   return `${Math.floor(diff)}s ago`
+  if (diff<3600) return `${Math.floor(diff/60)}m ago`
+  return new Date(ts).toLocaleTimeString([],{ hour:'2-digit', minute:'2-digit' })
+}
+
+function AlertCard({ alert, index, onAck }) {
+  const s = SEV[alert.severity] || SEV.info
+  const typeLabel = alert.alert_type?.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()) || 'Alert'
+  const [leaving, setLeaving] = useState(false)
+
+  function handleAck() { setLeaving(true); setTimeout(() => onAck(alert.id), 300) }
+
+  return (
+    <div
+      className={`rounded-xl flex items-start gap-3 px-4 py-3.5 transition-all duration-300 backdrop-blur-md
+        ${alert.severity==='critical' ? 'animate-shake' : 'animate-slide-right'}
+        ${alert.acknowledged ? 'opacity-40' : ''}
+        ${leaving ? 'opacity-0 translate-x-4' : 'opacity-100 translate-x-0'}
+      `}
+      style={{
+        background: alert.acknowledged ? 'rgba(10,18,34,0.4)' : s.bg,
+        border: `1px solid ${s.border}`,
+        boxShadow: alert.acknowledged ? 'none' : `0 4px 20px rgba(0,0,0,0.5), 0 0 16px ${s.glow}`,
+        animationDelay:`${index*50}ms`,
+        animationFillMode:'both',
+      }}
+    >
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0 mt-0.5"
+        style={{ background:s.bg, border:`1px solid ${s.border}` }}>
+        {s.icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center flex-wrap gap-2 mb-1">
+          <span className="font-bold text-[11px] uppercase tracking-wide" style={{ color:s.color }}>{typeLabel}</span>
+          <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider"
+            style={{ background:s.bg, color:s.color, border:`1px solid ${s.border}` }}>
+            {s.label}
+          </span>
+          {alert.rri_at_alert!=null && (
+            <span className="font-mono text-[9px] text-slate-400">RRI: {(alert.rri_at_alert*100).toFixed(1)}%</span>
+          )}
+        </div>
+        <div className="text-[11px] text-slate-300 leading-snug mb-1.5">{alert.message}</div>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[9px] text-slate-500">{timeAgo(alert.time)}</span>
+          {alert.resolved ? (
+            <span className="flex items-center gap-1 text-[9px] text-safe"><CheckCircle size={9}/>Resolved</span>
+          ) : alert.acknowledged ? (
+            <span className="flex items-center gap-1 text-[9px] text-warn"><Eye size={9}/>Acknowledged</span>
+          ) : (
+            <span className="flex items-center gap-1 text-[9px] text-crit blink"><ShieldAlert size={9}/>Active</span>
+          )}
+        </div>
+      </div>
+      {!alert.acknowledged && (
+        <button onClick={handleAck}
+          className="shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all btn-tactical"
+          style={{ background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.12)', color:'#94A3B8' }}
+        >
+          ACK
+        </button>
+      )}
+    </div>
+  )
 }
 
 export default function AlertsPage() {
-  const { alerts, acknowledgeAlert: ackLocal } = useStore()
+  const { alerts, acknowledgeAlert:ackLocal } = useStore()
   const [filter, setFilter] = useState('all')
 
   const filtered = alerts
-    .filter(a => filter === 'all' || a.severity === filter)
-    .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
+    .filter(a => filter==='all' || a.severity===filter)
+    .sort((a,b) => {
+      if (!a.acknowledged && b.acknowledged) return -1
+      if (a.acknowledged && !b.acknowledged) return 1
+      return (SEVERITY_ORDER[a.severity]??3) - (SEVERITY_ORDER[b.severity]??3)
+    })
 
-  async function handleAck(id) {
-    try { await acknowledgeAlert(id); ackLocal(id) }
-    catch (e) { console.error(e) }
-  }
+  async function handleAck(id) { try { await acknowledgeAlert(id); ackLocal(id) } catch {} }
 
-  const unacked = filtered.filter(a => !a.acknowledged).length
+  const unacked = alerts.filter(a => !a.acknowledged).length
+  const counts  = { critical:0, warning:0, info:0 }
+  alerts.forEach(a => { if (counts[a.severity]!==undefined) counts[a.severity]++ })
 
   return (
-    <div className="flex flex-col gap-5 p-6 min-h-full bg-bg-primary">
-      {/* Header */}
-      <div className="flex items-start justify-between">
+    <div className="flex flex-col gap-5 p-5 min-h-full animate-fade-scale" style={{ background:'transparent' }}>
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-            <BellRing size={20} className="text-status-caution" />
-            Alert Log
+          <div className="flex items-center gap-2 mb-1">
+            <Filter size={12} className="text-slate-500" />
+            <span className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">ALERT OPERATIONS</span>
+          </div>
+          <h1 className="text-xl font-bold text-white flex items-center gap-2">
+            <BellRing size={18} className="text-warn" style={{ filter:'drop-shadow(0 0 6px #F59E0B)' }} /> Alert Log
           </h1>
-          <p className="text-slate-500 text-xs mt-1">{unacked} unacknowledged · {filtered.length} total</p>
+          <p className="text-slate-400 text-xs mt-1">
+            <span className="text-crit font-bold font-mono">{unacked}</span> unacknowledged ·{' '}
+            <span className="font-mono">{filtered.length}</span> total
+          </p>
         </div>
 
         {/* Filter tabs */}
-        <div className="flex gap-1.5 p-1 bg-bg-card rounded-lg border border-border">
-          {['all', 'critical', 'warning', 'info'].map(f => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-all capitalize
-                ${filter === f
-                  ? 'bg-brand text-white shadow-glow-blue'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
-                }`}
-            >
-              {f}
-            </button>
-          ))}
+        <div className="flex gap-1 p-1 rounded-xl" style={{ background:'rgba(10, 18, 34, 0.75)', border:'1px solid rgba(59,130,246,0.2)', backdropFilter:'blur(16px)' }}>
+          {['all','critical','warning','info'].map(f => {
+            const cnt = f==='all' ? alerts.length : counts[f]||0
+            const COLOR = { critical:'#EF4444', warning:'#F59E0B', info:'#3B82F6', all:'#CBD5E1' }
+            const isActive = filter===f
+            return (
+              <button key={f} onClick={() => setFilter(f)}
+                className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-semibold uppercase tracking-wider transition-all duration-200 btn-tactical"
+                style={{
+                  background: isActive ? `${COLOR[f]}18` : 'transparent',
+                  color: isActive ? COLOR[f] : '#64748B',
+                  border: isActive ? `1px solid ${COLOR[f]}35` : '1px solid transparent',
+                  boxShadow: isActive ? `0 0 12px ${COLOR[f]}25` : undefined,
+                }}
+              >
+                {f}
+                {cnt>0 && (
+                  <span className="font-mono text-[8px] px-1 rounded-full"
+                    style={{ background:`${COLOR[f]}20`, color:COLOR[f] }}>
+                    {cnt}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
       </div>
 
-      {/* Table */}
-      <div className="rounded-xl bg-bg-card border border-border overflow-hidden">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-border">
-              {['Severity', 'Type', 'Message', 'Time', 'RRI', 'Status', ''].map(h => (
-                <th key={h} className="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-slate-500 font-medium">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="py-16 text-center">
-                  <div className="flex flex-col items-center gap-2 text-slate-600">
-                    <CheckCircle size={22} className="text-status-normal" />
-                    <span className="text-sm">No alerts match this filter</span>
-                  </div>
-                </td>
-              </tr>
-            ) : filtered.map(alert => {
-              const s = SEV_STYLE[alert.severity] || SEV_STYLE.info
-              return (
-                <tr
-                  key={alert.id}
-                  className={`border-b border-border transition-colors hover:bg-white/[0.02] ${alert.acknowledged ? 'opacity-40' : ''}`}
-                >
-                  {/* Severity */}
-                  <td className="px-4 py-3">
-                    <span className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-semibold uppercase w-fit ${s.badge}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
-                      {alert.severity}
-                    </span>
-                  </td>
-                  {/* Type */}
-                  <td className="px-4 py-3 font-mono text-slate-300 font-medium">
-                    {alert.alert_type?.replace(/_/g, ' ')}
-                  </td>
-                  {/* Message */}
-                  <td className="px-4 py-3 text-slate-400 max-w-xs truncate">{alert.message}</td>
-                  {/* Time */}
-                  <td className="px-4 py-3 font-mono text-slate-500">
-                    {alert.time ? new Date(alert.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--'}
-                  </td>
-                  {/* RRI */}
-                  <td className="px-4 py-3 font-mono text-brand">
-                    {alert.rri_at_alert != null ? `${(alert.rri_at_alert * 100).toFixed(1)}%` : '--'}
-                  </td>
-                  {/* Status */}
-                  <td className="px-4 py-3">
-                    {alert.resolved
-                      ? <span className="flex items-center gap-1 text-status-normal"><CheckCircle size={11} />Resolved</span>
-                      : alert.acknowledged
-                      ? <span className="flex items-center gap-1 text-status-caution"><Eye size={11} />Acknowledged</span>
-                      : <span className="flex items-center gap-1 text-status-critical"><ShieldAlert size={11} />Active</span>
-                    }
-                  </td>
-                  {/* Action */}
-                  <td className="px-4 py-3">
-                    {!alert.acknowledged && (
-                      <button
-                        onClick={() => handleAck(alert.id)}
-                        className="px-2.5 py-1 rounded-lg text-[10px] font-medium border border-border text-slate-400
-                                   hover:border-border-light hover:text-white hover:bg-white/5 transition-all"
-                      >
-                        Acknowledge
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
+      {filtered.length===0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 py-24 rounded-2xl"
+          style={{ background:'rgba(10, 18, 34, 0.75)', border:'1px solid rgba(59,130,246,0.2)', backdropFilter:'blur(16px)' }}>
+          <CheckCircle size={32} className="text-safe" style={{ filter:'drop-shadow(0 0 8px #22C55E)' }} />
+          <p className="text-slate-300 font-medium">No alerts match this filter</p>
+          <p className="text-slate-500 text-xs">All clear — system nominal</p>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {filtered.map((alert,i) => <AlertCard key={alert.id ? `${alert.id}-${i}` : `alert-${i}`} alert={alert} index={i} onAck={handleAck} />)}
+        </div>
+      )}
     </div>
   )
 }

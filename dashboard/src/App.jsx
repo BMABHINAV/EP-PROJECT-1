@@ -10,7 +10,7 @@ import AnalyticsPage from './pages/AnalyticsPage'
 import AIPredictionsPage from './pages/AIPredictionsPage'
 import LiveMapPage from './pages/LiveMapPage'
 import useStore from './store/useStore'
-import { DashboardWebSocket, fetchResponders, fetchSummary, fetchAlerts } from './services/api'
+import { DashboardWebSocket, fetchResponders, fetchSummary, fetchAlerts, fetchResponderCards } from './services/api'
 
 export default function App() {
   const {
@@ -21,12 +21,34 @@ export default function App() {
   const wsRef = useRef(null)
 
   useEffect(() => {
-    fetchResponders().then(setResponders).catch(console.error)
-    fetchSummary().then(setSummary).catch(console.error)
-    fetchAlerts({ acknowledged: false }).then(setAlerts).catch(console.error)
+    const loadDashboardState = async () => {
+      try {
+        const [respondersRes, summaryRes, alertsRes, cardsRes] = await Promise.allSettled([
+          fetchResponders(),
+          fetchSummary(),
+          fetchAlerts({ acknowledged: false }),
+          fetchResponderCards(),
+        ])
+
+        if (respondersRes.status === 'fulfilled') setResponders(respondersRes.value)
+        if (summaryRes.status === 'fulfilled') setSummary(summaryRes.value)
+        if (alertsRes.status === 'fulfilled') setAlerts(alertsRes.value)
+
+        if (cardsRes.status === 'fulfilled') {
+          const cards = cardsRes.value?.responder_cards || []
+          cards.forEach((card) => {
+            if (card.vitals && Object.keys(card.vitals).length) updateVitals(card.badge_id, { badge_id: card.badge_id, ...card.vitals })
+            if (card.rri != null) updateRRI(card.badge_id, { badge_id: card.badge_id, rri: card.rri, risk_level: card.risk_level })
+          })
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    }
+
+    loadDashboardState()
     const iv = setInterval(() => {
-      fetchSummary().then(setSummary).catch(console.error)
-      fetchAlerts({ acknowledged: false }).then(setAlerts).catch(console.error)
+      loadDashboardState()
     }, 30000)
     return () => clearInterval(iv)
   }, [])
@@ -38,8 +60,7 @@ export default function App() {
       if (type === 'gas_update')      updateGas(data.badge_id, data)
       if (type === 'rri_update')      updateRRI(data.badge_id, data)
       if (type === 'alert_triggered') addAlert(data)
-      setWsConnected(true)
-    })
+    }, setWsConnected)
     ws.connect()
     wsRef.current = ws
     return () => ws.disconnect()

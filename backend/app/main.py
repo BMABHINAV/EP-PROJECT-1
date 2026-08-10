@@ -14,6 +14,11 @@ from app.core.database import engine, Base, init_db
 from app.api.v1 import router as api_v1_router
 from app.api.websocket import ws_router
 
+import sys
+import asyncio
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 logger = logging.getLogger(__name__)
 
 # Deferred MQTT import so app starts even when broker is offline

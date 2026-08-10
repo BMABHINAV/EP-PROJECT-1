@@ -1,14 +1,14 @@
 import { create } from 'zustand'
 
 /**
- * Global store for real-time responder data.
- * Updated by WebSocket messages from backend.
+ * Global store for real-time responder telemetry.
+ * Updated by WebSocket messages and API fetches from backend.
  */
 
 const useStore = create((set, get) => ({
   // ── Responders ────────────────────────────────────────────────
   responders: [],        // [{ id, badge_id, name, role, team, ... }]
-  setResponders: (data) => set({ responders: data }),
+  setResponders: (data) => set({ responders: Array.isArray(data) ? data : [] }),
 
   // ── Live Data (keyed by badge_id) ─────────────────────────────
   liveVitals: {},        // { 'NDRF-001': { heart_rate, spo2, ... } }
@@ -17,18 +17,18 @@ const useStore = create((set, get) => ({
   history:    {},        // { 'NDRF-001': [{ time, hr, spo2, co }, ...] }
 
   updateVitals: (badge_id, data) => set((state) => {
+    if (!badge_id) return state
     const ts = new Date()
     const timeStr = ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     const oldHistory = state.history[badge_id] || []
     
-    // Only add a new history point if we have a valid heart rate
     let newHistory = oldHistory
     if (data.heart_rate != null) {
       newHistory = [...oldHistory, {
         time: timeStr,
-        hr: data.heart_rate,
-        spo2: data.spo2,
-      }].slice(-30) // Keep last 30 data points
+        hr: Number(data.heart_rate),
+        spo2: data.spo2 != null ? Number(data.spo2) : null,
+      }].slice(-30) // Cap at last 30 data points
     }
 
     return {
@@ -37,28 +37,36 @@ const useStore = create((set, get) => ({
     }
   }),
 
-  updateGas: (badge_id, data) => set((state) => ({
-    liveGas: { ...state.liveGas, [badge_id]: { ...data, ts: new Date() } }
-  })),
+  updateGas: (badge_id, data) => set((state) => {
+    if (!badge_id) return state
+    return { liveGas: { ...state.liveGas, [badge_id]: { ...data, ts: new Date() } } }
+  }),
 
-  updateRRI: (badge_id, data) => set((state) => ({
-    liveRRI: { ...state.liveRRI, [badge_id]: { ...data, ts: new Date() } }
-  })),
+  updateRRI: (badge_id, data) => set((state) => {
+    if (!badge_id) return state
+    return { liveRRI: { ...state.liveRRI, [badge_id]: { ...data, ts: new Date() } } }
+  }),
 
-  // ── Alerts ────────────────────────────────────────────────────
+  // ── Alerts (Deduped by ID) ────────────────────────────────────
   alerts: [],            // [{ id, time, alert_type, severity, message, ... }]
   unacknowledgedCount: 0,
-  addAlert: (alert) => set((state) => ({
-    alerts: [alert, ...state.alerts].slice(0, 100),
-    unacknowledgedCount: state.unacknowledgedCount + 1,
-  })),
+  addAlert: (alert) => set((state) => {
+    if (!alert || !alert.id) return state
+    const exists = state.alerts.some(a => a.id === alert.id)
+    if (exists) return state
+    const newAlerts = [alert, ...state.alerts].slice(0, 100)
+    return {
+      alerts: newAlerts,
+      unacknowledgedCount: alert.acknowledged ? state.unacknowledgedCount : state.unacknowledgedCount + 1,
+    }
+  }),
   acknowledgeAlert: (id) => set((state) => ({
     alerts: state.alerts.map(a => a.id === id ? { ...a, acknowledged: true } : a),
     unacknowledgedCount: Math.max(0, state.unacknowledgedCount - 1),
   })),
   setAlerts: (alerts) => set({
-    alerts,
-    unacknowledgedCount: alerts.filter(a => !a.acknowledged).length
+    alerts: Array.isArray(alerts) ? alerts : [],
+    unacknowledgedCount: Array.isArray(alerts) ? alerts.filter(a => !a.acknowledged).length : 0
   }),
 
   // ── Dashboard Summary ─────────────────────────────────────────
@@ -68,7 +76,7 @@ const useStore = create((set, get) => ({
     average_rri: 0,
     risk_distribution: {},
   },
-  setSummary: (summary) => set({ summary }),
+  setSummary: (summary) => set({ summary: summary || {} }),
 
   // ── WebSocket connection status ───────────────────────────────
   wsConnected: false,

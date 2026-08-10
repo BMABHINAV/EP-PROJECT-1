@@ -1,14 +1,18 @@
 """
 MQTT client — subscribes to all responder topics and persists data to DB.
 Also publishes processed alerts and RRI predictions.
+Uses paho.mqtt.client for 100% Windows asyncio compatibility.
 """
 
 import asyncio
 import json
 import logging
 from datetime import datetime
+try:
+    import paho.mqtt.client as paho
+except ImportError:  # pragma: no cover - startup reports a clear dependency hint
+    paho = None
 
-import aiomqtt
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.services.alert_service import evaluate_and_raise_alerts
@@ -30,43 +34,72 @@ class MQTTManager:
     def __init__(self):
         self._client = None
         self._running = False
+        self._loop = None
 
     async def connect(self):
+        if paho is None:
+            raise RuntimeError("paho-mqtt is not installed. Run: pip install -r backend/requirements.txt")
+
+        self._loop = asyncio.get_running_loop()
         self._running = True
-        asyncio.create_task(self._listen_loop())
+        
+        # Initialize paho client with v3.1.1 protocol for amqtt compatibility
+        self._client = paho.Client(
+            client_id=settings.MQTT_CLIENT_ID,
+            protocol=paho.MQTTv311
+        )
+        self._client.on_connect = self._on_connect
+        self._client.on_message = self._on_message
+        
+        try:
+            self._client.connect_async(
+                settings.MQTT_BROKER_HOST,
+                settings.MQTT_BROKER_PORT,
+                keepalive=settings.MQTT_KEEPALIVE
+            )
+            self._client.loop_start()
+            logger.info("📡 MQTT client started loop")
+        except Exception as e:
+            logger.warning(f"⚠️  MQTT connect failed: {e}")
 
     async def disconnect(self):
         self._running = False
+        if self._client:
+            self._client.loop_stop()
+            self._client.disconnect()
+            logger.info("💤 MQTT client disconnected")
 
-    async def subscribe_all(self):
-        pass  # handled inside _listen_loop
-
-    async def _listen_loop(self):
-        """Long-running MQTT listener task."""
-        async with aiomqtt.Client(
-            hostname=settings.MQTT_BROKER_HOST,
-            port=settings.MQTT_BROKER_PORT,
-            identifier=settings.MQTT_CLIENT_ID,
-            keepalive=settings.MQTT_KEEPALIVE,
-        ) as client:
-            self._client = client
+    def _on_connect(self, client, userdata, flags, rc):
+        if rc == 0:
+            logger.info("✅ MQTT broker connected successfully")
             topics = [
-                TOPIC_VITALS, TOPIC_GAS, TOPIC_MOTION,
-                TOPIC_PREDICTION, TOPIC_BATTERY, TOPIC_LOCATION,
+                (TOPIC_VITALS, 0),
+                (TOPIC_GAS, 0),
+                (TOPIC_MOTION, 0),
+                (TOPIC_PREDICTION, 0),
+                (TOPIC_BATTERY, 0),
+                (TOPIC_LOCATION, 0),
             ]
-            for topic in topics:
-                await client.subscribe(topic)
-                logger.info(f"Subscribed to: {topic}")
+            client.subscribe(topics)
+            logger.info(f"Subscribed to responder topics: {settings.MQTT_TOPIC_PREFIX}/+/...")
+        else:
+            logger.warning(f"MQTT connect returned result code: {rc}")
 
-            async for message in client.messages:
-                if not self._running:
-                    break
-                await self._handle_message(str(message.topic), message.payload)
+    def _on_message(self, client, userdata, msg):
+        if not self._running or not self._loop:
+            return
+        # Schedule message processing on asyncio event loop thread-safely
+        asyncio.run_coroutine_threadsafe(
+            self._handle_message(msg.topic, msg.payload),
+            self._loop
+        )
 
     async def _handle_message(self, topic: str, payload: bytes):
         """Route incoming MQTT message to the correct handler."""
         try:
             parts = topic.split("/")
+            if len(parts) < 3:
+                return
             badge_id = parts[1]
             data_type = parts[2]
             data = json.loads(payload.decode("utf-8"))
@@ -109,7 +142,6 @@ class MQTTManager:
         )
         db.add(vital)
         await db.commit()
-        logger.debug(f"Saved vitals for {badge_id}: HR={data.get('heart_rate')}")
         
         # Broadcast live data to Dashboard
         await ws_manager.broadcast("vitals_update", {"badge_id": badge_id, **data})
@@ -146,9 +178,6 @@ class MQTTManager:
         await evaluate_and_raise_alerts(db, responder, "gas", data)
 
     async def _handle_motion(self, db, badge_id: str, data: dict):
-        from app.db.models.models import Responder
-        from sqlalchemy import select
-        # Motion stored similarly
         pass
 
     async def _handle_prediction(self, db, badge_id: str, data: dict):
@@ -189,15 +218,15 @@ class MQTTManager:
         })
 
     async def _handle_battery(self, db, badge_id: str, data: dict):
-        pass  # implement similarly
+        pass
 
     async def _handle_location(self, db, badge_id: str, data: dict):
-        pass  # implement similarly
+        pass
 
     async def publish(self, topic: str, payload: dict):
-        """Publish a message to MQTT (for alerts, commands)."""
+        """Publish a message to MQTT."""
         if self._client:
-            await self._client.publish(topic, json.dumps(payload).encode())
+            self._client.publish(topic, json.dumps(payload).encode())
 
 
 mqtt_manager = MQTTManager()

@@ -1,15 +1,36 @@
-import { HeartPulse, Droplets, Thermometer, Wind } from 'lucide-react'
+import { useState } from 'react'
+import { HeartPulse, Droplets, Thermometer, Wind, Battery, Signal, Clock } from 'lucide-react'
 import useStore from '../../store/useStore'
 
 const RISK = {
-  normal:   { bar: '#22c55e', badge: 'bg-safe/10 text-safe border-safe/25',     top: 'bg-safe',  label:'SAFE' },
-  caution:  { bar: '#f59e0b', badge: 'bg-warn/10 text-warn border-warn/25',     top: 'bg-warn',  label:'CAUTION' },
-  warning:  { bar: '#f97316', badge: 'bg-warn/10 text-warn border-warn/25',     top: 'bg-warn',  label:'WARNING' },
-  critical: { bar: '#ef4444', badge: 'bg-crit/10 text-crit border-crit/25',     top: 'bg-crit',  label:'CRITICAL' },
+  normal:   { color:'#22C55E', label:'SAFE',     bg:'rgba(34,197,94,0.15)',   border:'rgba(34,197,94,0.35)'   },
+  caution:  { color:'#F59E0B', label:'CAUTION',  bg:'rgba(245,158,11,0.15)',  border:'rgba(245,158,11,0.35)'  },
+  warning:  { color:'#F97316', label:'WARNING',  bg:'rgba(249,115,22,0.15)',  border:'rgba(249,115,22,0.35)'  },
+  critical: { color:'#EF4444', label:'CRITICAL', bg:'rgba(239,68,68,0.15)',   border:'rgba(239,68,68,0.35)'   },
+}
+
+function VCell({ icon, label, val, alert, color }) {
+  return (
+    <div className="rounded-xl px-2.5 py-2 border transition-all"
+      style={{
+        background: alert ? 'rgba(239,68,68,0.10)' : 'rgba(255,255,255,0.03)',
+        borderColor: alert ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.07)',
+      }}
+    >
+      <div className="flex items-center gap-1 mb-0.5" style={{ color: alert ? '#EF4444' : color, opacity:0.8 }}>
+        {icon}
+        <span className="text-[8px] uppercase tracking-widest font-semibold">{label}</span>
+      </div>
+      <div className="font-mono text-[12px] font-bold" style={{ color: alert ? '#EF4444' : '#F8FAFC' }}>
+        {val}
+      </div>
+    </div>
+  )
 }
 
 export default function ResponderCard({ responder }) {
   const { liveVitals, liveGas, liveRRI, setSelectedResponder } = useStore()
+  const [hovered, setHovered] = useState(false)
 
   const badge   = responder.badge_id
   const vitals  = liveVitals[badge] || {}
@@ -26,70 +47,101 @@ export default function ResponderCard({ responder }) {
   const rriPct    = Math.min(rri * 100, 100).toFixed(0)
   const s         = RISK[riskLevel] || RISK.normal
 
-  const fmt = (v, d = 0) => v != null ? Number(v).toFixed(d) : '--'
-  const alertHR   = heartRate != null && heartRate > 110
-  const alertSpo2 = spo2 != null && spo2 < 92
-  const alertTemp = bodyTemp != null && bodyTemp > 38.5
-  const alertCO   = co != null && co > 25
+  const fmt = (v, d=0) => v!=null ? Number(v).toFixed(d) : '--'
+  const alertHR   = heartRate!=null && heartRate>110
+  const alertSpo2 = spo2!=null && spo2<92
+  const alertTemp = bodyTemp!=null && bodyTemp>38.5
+  const alertCO   = co!=null && co>25
+  const isCrit    = riskLevel==='critical'
 
   return (
     <div
       onClick={() => setSelectedResponder(responder.id)}
       id={`responder-card-${badge}`}
       role="button" tabIndex={0}
-      className="relative group cursor-pointer overflow-hidden rounded-xl 
-                 bg-dash-card border border-dash-border2
-                 hover:border-dash-border hover:shadow-card hover:-translate-y-0.5
-                 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-brand/30"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="relative group cursor-pointer overflow-hidden rounded-2xl transition-all duration-200 focus:outline-none"
+      style={{
+        background: 'rgba(10, 18, 34, 0.78)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        border: hovered ? `1px solid ${s.color}60` : '1px solid rgba(59, 130, 246, 0.2)',
+        boxShadow: hovered
+          ? `0 12px 40px rgba(0,0,0,0.7), 0 0 20px ${s.color}30`
+          : '0 8px 32px rgba(0,0,0,0.5)',
+        transform: hovered ? 'translateY(-3px)' : 'translateY(0)',
+      }}
     >
-      <div className={`h-0.5 w-full ${s.top} ${riskLevel === 'critical' ? 'blink' : ''}`} />
+      {/* Top accent bar */}
+      <div style={{
+        height:3,
+        background:`linear-gradient(90deg,${s.color}60,${s.color},${s.color}60)`,
+        boxShadow:`0 0 8px ${s.color}`,
+        animation: isCrit ? 'blink 1s ease infinite' : undefined,
+      }} />
 
-      <div className="p-3.5">
+      <div className="p-4">
+        {/* Header */}
         <div className="flex items-start justify-between mb-3">
-          <div>
-            <div className="font-semibold text-[13px] text-white leading-tight">{responder.name}</div>
-            <div className="text-[10px] text-slate-500 mt-0.5">
-              <span className="font-mono text-slate-400">{responder.badge_id}</span>
-              <span className="mx-1">·</span>{responder.role}
+          <div className="flex items-center gap-2.5">
+            <div className="relative w-9 h-9 rounded-full flex items-center justify-center text-white text-[12px] font-bold shrink-0"
+              style={{ background:`linear-gradient(135deg,${s.color}70,${s.color})`, boxShadow:`0 0 10px ${s.color}50` }}>
+              {responder.name.charAt(0)}
+              <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border border-[#060C1A]"
+                style={{ background:s.color, boxShadow:`0 0 6px ${s.color}`, animation:'blink 2s ease infinite' }} />
+            </div>
+            <div>
+              <div className="text-white text-[12px] font-bold leading-tight">{responder.name}</div>
+              <div className="text-slate-400 text-[9px] mt-0.5">
+                <span className="font-mono">{responder.badge_id}</span>{' · '}{responder.role}
+              </div>
             </div>
           </div>
-          <span className={`text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${s.badge}`}>
+          <span className="text-[8px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
+            style={{ background:s.bg, color:s.color, border:`1px solid ${s.border}` }}>
             {s.label}
           </span>
         </div>
 
-        {/* RRI bar */}
+        {/* RRI Bar */}
         <div className="mb-3.5">
-          <div className="flex justify-between mb-1.5">
-            <span className="text-[9px] text-slate-500 font-medium tracking-wider uppercase">Rescue Risk Index</span>
-            <span className="font-mono text-[10px] font-bold" style={{ color: s.bar }}>{rriPct}%</span>
+          <div className="flex justify-between items-center mb-1.5">
+            <span className="text-[9px] text-slate-400 uppercase tracking-widest font-medium">Rescue Risk Index</span>
+            <span className="font-mono text-[11px] font-bold" style={{ color:s.color, textShadow:`0 0 6px ${s.color}60` }}>{rriPct}%</span>
           </div>
-          <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-            <div className="h-full rounded-full transition-all duration-700" style={{ width:`${rriPct}%`, background: s.bar }} />
+          <div className="h-1.5 rounded-full overflow-hidden bg-white/5">
+            <div className="h-full rounded-full transition-all duration-700"
+              style={{ width:`${rriPct}%`, background:`linear-gradient(90deg,${s.color}80,${s.color})`, boxShadow:`0 0 8px ${s.color}` }} />
           </div>
         </div>
 
-        {/* Vitals grid */}
-        <div className="grid grid-cols-2 gap-2">
-          <VCell icon={<HeartPulse size={10} className="text-hr"/>} label="HR"   val={`${fmt(heartRate)} bpm`} alert={alertHR} />
-          <VCell icon={<Droplets size={10} className="text-spo2"/>} label="SpO2" val={`${fmt(spo2, 1)}%`}     alert={alertSpo2} />
-          <VCell icon={<Thermometer size={10} className="text-temp"/>} label="Temp" val={`${fmt(bodyTemp, 1)}°C`} alert={alertTemp} />
-          <VCell icon={<Wind size={10} className="text-co"/>} label="CO" val={`${fmt(co, 1)} ppm`} alert={alertCO} />
+        {/* Vitals */}
+        <div className="grid grid-cols-2 gap-1.5 mb-3">
+          <VCell icon={<HeartPulse size={10}/>} label="HR"   val={`${fmt(heartRate)} bpm`} alert={alertHR}   color="#F43F5E" />
+          <VCell icon={<Droplets    size={10}/>} label="SpO₂" val={`${fmt(spo2,1)}%`}      alert={alertSpo2}  color="#06B6D4" />
+          <VCell icon={<Thermometer size={10}/>} label="Temp" val={`${fmt(bodyTemp,1)}°C`}  alert={alertTemp}  color="#FB923C" />
+          <VCell icon={<Wind        size={10}/>} label="CO"   val={`${fmt(co,1)} ppm`}      alert={alertCO}    color="#A78BFA" />
         </div>
 
-        <div className="text-[9px] text-slate-600 text-right mt-2">Updated {lastSeen}</div>
+        {/* Footer */}
+        <div className="flex items-center justify-between pt-2" style={{ borderTop:'1px solid rgba(255,255,255,0.06)' }}>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
+              <Battery size={9} className="text-slate-500" />
+              <span className="font-mono text-[9px] text-slate-400">72%</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Signal size={9} className="text-slate-500" />
+              <span className="font-mono text-[9px] text-slate-400">95%</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1">
+            <Clock size={9} className="text-slate-500" />
+            <span className="font-mono text-[9px] text-slate-400">{lastSeen}</span>
+          </div>
+        </div>
       </div>
-    </div>
-  )
-}
-
-function VCell({ icon, label, val, alert }) {
-  return (
-    <div className={`rounded-lg px-2.5 py-1.5 border ${alert ? 'bg-crit/8 border-crit/20' : 'bg-white/[0.025] border-transparent'}`}>
-      <div className="flex items-center gap-1 text-[9px] text-slate-500 mb-0.5">
-        {icon}<span className="uppercase tracking-wider">{label}</span>
-      </div>
-      <div className={`font-mono text-[12px] font-semibold ${alert ? 'text-crit' : 'text-slate-200'}`}>{val}</div>
     </div>
   )
 }

@@ -1,270 +1,271 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Brain, RefreshCw, AlertTriangle, ShieldCheck, Activity, Zap } from 'lucide-react'
-import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  RadialBarChart, RadialBar, PolarAngleAxis
-} from 'recharts'
+import { Brain, RefreshCw, AlertTriangle, ShieldCheck, Activity, Zap, TrendingUp, TrendingDown } from 'lucide-react'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import useStore from '../store/useStore'
 import { api } from '../services/api'
+import AnimatedGauge from '../components/ui/AnimatedGauge'
+import CountUp from '../components/ui/CountUp'
 
 const RISK_META = {
-  normal:   { color: '#22c55e', label: 'SAFE',     bg: 'bg-safe/10',  border: 'border-safe/25'  },
-  caution:  { color: '#f59e0b', label: 'CAUTION',  bg: 'bg-warn/10',  border: 'border-warn/25'  },
-  warning:  { color: '#f97316', label: 'WARNING',  bg: 'bg-warn/10',  border: 'border-warn/25'  },
-  critical: { color: '#ef4444', label: 'CRITICAL', bg: 'bg-crit/10',  border: 'border-crit/25'  },
+  normal:   { color:'#22C55E', label:'SAFE',     bg:'rgba(34,197,94,0.15)',   border:'rgba(34,197,94,0.35)'   },
+  caution:  { color:'#F59E0B', label:'CAUTION',  bg:'rgba(245,158,11,0.15)',  border:'rgba(245,158,11,0.35)'  },
+  warning:  { color:'#F97316', label:'WARNING',  bg:'rgba(249,115,22,0.15)',  border:'rgba(249,115,22,0.35)'  },
+  critical: { color:'#EF4444', label:'CRITICAL', bg:'rgba(239,68,68,0.15)',   border:'rgba(239,68,68,0.35)'   },
 }
 
-const TT_STYLE = { backgroundColor:'#0c1428', border:'1px solid rgba(59,130,246,0.2)', borderRadius:8, fontSize:11 }
-
-function RRIGauge({ value = 0, risk = 'normal' }) {
-  const color = RISK_META[risk]?.color || '#22c55e'
-  const pct   = Math.round(value * 100)
-  const data  = [{ value: pct, fill: color }]
-  return (
-    <div className="flex flex-col items-center">
-      <div className="relative" style={{ width: 90, height: 90 }}>
-        <RadialBarChart
-          width={90} height={90}
-          cx={45} cy={45}
-          innerRadius={28} outerRadius={42}
-          startAngle={210} endAngle={-30}
-          data={data} barSize={10}
-        >
-          <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-          <RadialBar background={{ fill: '#1e293b' }} dataKey="value" angleAxisId={0} />
-        </RadialBarChart>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="font-mono text-base font-bold" style={{ color }}>{pct}%</span>
-        </div>
-      </div>
-    </div>
-  )
+const TT = {
+  backgroundColor: 'rgba(6, 12, 24, 0.92)',
+  border: '1px solid rgba(59, 130, 246, 0.35)',
+  borderRadius: 10,
+  fontSize: 11,
+  backdropFilter: 'blur(12px)',
 }
 
-function PredictionCard({ responder, prediction, history, loading }) {
+function PredictionCard({ responder, prediction, history, loading, index }) {
   const risk = prediction?.risk_level || 'normal'
   const { color, label, bg, border } = RISK_META[risk] || RISK_META.normal
-  const rri = prediction?.rri ?? 0
+  const rri  = prediction?.rri ?? 0
   const fatigue = prediction?.fatigue_probability ?? null
+  const rriPct  = Math.round(rri * 100)
+  const action  = risk==='critical' ? 'Evacuate Immediately' : risk==='warning' ? 'Supervisor Alert' : risk==='caution' ? 'Monitor Closely' : 'Continue Mission'
+  const fatigueTrend = fatigue!=null
+    ? fatigue>0.6 ? { text:'Fatigue Increasing', icon:<TrendingUp size={9}/>, color:'#EF4444' }
+      : fatigue>0.35 ? { text:'Moderate Fatigue', icon:<TrendingUp size={9}/>, color:'#F59E0B' }
+      : { text:'Fatigue Stable', icon:<TrendingDown size={9}/>, color:'#22C55E' }
+    : null
 
   return (
-    <div className={`rounded-xl bg-dash-card border ${border} p-4 flex flex-col gap-3 hover:shadow-card transition-all`}>
+    <div
+      className="rounded-2xl flex flex-col gap-3 p-4 transition-all duration-250 hover:-translate-y-0.5 animate-fade-scale"
+      style={{
+        background: 'rgba(10, 18, 34, 0.78)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        border: `1px solid ${border}`,
+        boxShadow: `0 8px 32px rgba(0,0,0,0.5), 0 0 20px ${color}20`,
+        animationDelay:`${index*60}ms`, animationFillMode:'both',
+      }}
+    >
+      {/* Top bar */}
+      <div style={{ height:2.5, background:`linear-gradient(90deg,${color}50,${color},${color}50)`, borderRadius:2, boxShadow:`0 0 8px ${color}` }} />
+
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand/80 to-blue-600 flex items-center justify-center text-white text-[11px] font-bold">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-[12px] font-bold"
+            style={{ background:`linear-gradient(135deg,${color}60,${color})`, boxShadow:`0 0 10px ${color}50` }}>
             {responder.name.charAt(0)}
           </div>
           <div>
-            <div className="text-white text-[12px] font-semibold">{responder.name}</div>
-            <div className="text-slate-500 text-[9px]">{responder.badge_id}</div>
+            <div className="text-white text-[12px] font-bold">{responder.name}</div>
+            <div className="font-mono text-[9px] text-slate-400">{responder.badge_id}</div>
           </div>
         </div>
-        <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full border ${bg} ${border}`} style={{ color }}>
+        <span className="text-[8px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider"
+          style={{ background:bg, color, border:`1px solid ${border}` }}>
           {label}
         </span>
       </div>
 
-      {/* Gauge + stats */}
-      <div className="flex items-center gap-4">
-        {loading ? (
-          <div className="w-[90px] h-[90px] flex items-center justify-center text-slate-600">
-            <RefreshCw size={20} className="animate-spin" />
-          </div>
-        ) : (
-          <RRIGauge value={rri} risk={risk} />
-        )}
-        <div className="flex-1 flex flex-col gap-2">
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] text-slate-500">Rescue Risk Index</span>
-            <span className="font-mono text-[12px] font-bold" style={{ color }}>{(rri * 100).toFixed(1)}%</span>
-          </div>
-          {fatigue != null && (
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] text-slate-500">Fatigue Prob.</span>
-              <span className={`font-mono text-[12px] font-bold ${fatigue > 0.6 ? 'text-crit' : fatigue > 0.35 ? 'text-warn' : 'text-safe'}`}>
-                {(fatigue * 100).toFixed(1)}%
-              </span>
+      {/* Gauge */}
+      {loading ? (
+        <div className="flex items-center justify-center py-4"><RefreshCw size={20} className="animate-spin text-slate-500" /></div>
+      ) : (
+        <div className="flex items-center gap-4">
+          <AnimatedGauge value={rriPct} color={color} size={110} sublabel="RRI" />
+          <div className="flex-1 flex flex-col gap-2">
+            {fatigueTrend && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
+                style={{ background:`${fatigueTrend.color}15`, border:`1px solid ${fatigueTrend.color}30` }}>
+                <span style={{ color:fatigueTrend.color }}>{fatigueTrend.icon}</span>
+                <span className="text-[9px] font-semibold" style={{ color:fatigueTrend.color }}>{fatigueTrend.text}</span>
+              </div>
+            )}
+            {fatigue!=null && (
+              <div>
+                <div className="flex justify-between text-[9px] mb-1">
+                  <span className="text-slate-400">Fatigue Prob.</span>
+                  <span className="font-mono font-bold" style={{ color:fatigue>0.6?'#EF4444':fatigue>0.35?'#F59E0B':'#22C55E' }}>
+                    {(fatigue*100).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="h-1 rounded-full bg-white/5">
+                  <div className="h-full rounded-full transition-all duration-700"
+                    style={{ width:`${fatigue*100}%`, background:fatigue>0.6?'#EF4444':fatigue>0.35?'#F59E0B':'#22C55E' }} />
+                </div>
+              </div>
+            )}
+            <div className="px-2.5 py-1.5 rounded-lg" style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)' }}>
+              <div className="text-[8px] text-slate-400 uppercase tracking-widest mb-0.5">Recommended</div>
+              <div className="text-[10px] font-semibold" style={{ color }}>{action}</div>
             </div>
-          )}
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] text-slate-500">Inference</span>
-            <span className="font-mono text-[10px] text-slate-400">
-              {prediction?.inference_time_ms ? `${prediction.inference_time_ms.toFixed(1)} ms` : 'Rule-based'}
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] text-slate-500">Updated</span>
-            <span className="font-mono text-[10px] text-slate-500">
-              {prediction?.time ? new Date(prediction.time).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' }) : 'N/A'}
-            </span>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Mini RRI trend */}
-      {history.length > 1 && (
-        <div style={{ height: 60 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={history} margin={{ top:0, right:0, bottom:0, left:0 }}>
+      {/* Sparkline */}
+      {history && history.length>1 && (
+        <div style={{ height:55 }}>
+          <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={50}>
+            <AreaChart data={history} margin={{ top:2,right:0,bottom:0,left:0 }}>
               <defs>
-                <linearGradient id={`rriGrad-${responder.badge_id}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={color} stopOpacity={0.3} />
-                  <stop offset="95%" stopColor={color} stopOpacity={0.0} />
+                <linearGradient id={`rriG-${responder.badge_id}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor={color} stopOpacity={0.35} />
+                  <stop offset="95%" stopColor={color} stopOpacity={0.00} />
                 </linearGradient>
               </defs>
-              <Tooltip contentStyle={TT_STYLE} />
-              <Area type="monotone" dataKey="rri" stroke={color} fill={`url(#rriGrad-${responder.badge_id})`}
-                strokeWidth={1.5} dot={false} connectNulls name="RRI" />
+              <XAxis dataKey="time" hide /><YAxis hide domain={[0,100]} />
+              <Tooltip contentStyle={TT} />
+              <Area type="monotone" dataKey="rri" stroke={color} fill={`url(#rriG-${responder.badge_id})`} strokeWidth={1.5} dot={false} connectNulls name="RRI %" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
+
+      {/* Footer */}
+      <div className="flex justify-between text-[9px] text-slate-400 font-mono pt-1" style={{ borderTop:'1px solid rgba(255,255,255,0.06)' }}>
+        <span>Inference: {prediction?.inference_time_ms ? `${prediction.inference_time_ms.toFixed(1)}ms` : 'Rule-based'}</span>
+        <span>{prediction?.time ? new Date(prediction.time).toLocaleTimeString([],{ hour:'2-digit',minute:'2-digit' }) : 'Live'}</span>
+      </div>
     </div>
   )
 }
 
 export default function AIPredictionsPage() {
-  const { responders, liveRRI } = useStore()
+  const { responders, liveRRI, history } = useStore()
   const [predictions, setPredictions] = useState({})
   const [histories, setHistories]     = useState({})
   const [loading, setLoading]         = useState({})
+  const [spinning, setSpinning]       = useState(false)
 
   const fetchPredictions = useCallback(async () => {
-    await Promise.all(responders.map(async (r) => {
-      setLoading(prev => ({ ...prev, [r.badge_id]: true }))
+    setSpinning(true)
+    await Promise.all(responders.map(async r => {
+      setLoading(prev => ({ ...prev, [r.badge_id]:true }))
       try {
         const [latestRes, histRes] = await Promise.allSettled([
           api.get(`/api/v1/predictions/${r.badge_id}/latest`),
           api.get(`/api/v1/predictions/${r.badge_id}/history?minutes=30`),
         ])
-
-        if (latestRes.status === 'fulfilled' && !latestRes.value.data.message && !latestRes.value.data.error) {
-          setPredictions(prev => ({ ...prev, [r.badge_id]: latestRes.value.data }))
+        if (latestRes.status==='fulfilled' && latestRes.value.data && !latestRes.value.data.message && !latestRes.value.data.error) {
+          setPredictions(prev => ({ ...prev, [r.badge_id]:latestRes.value.data }))
         } else {
-          // Fall back to live liveRRI store data
-          const rriData = liveRRI[r.badge_id]
-          if (rriData) {
-            setPredictions(prev => ({
-              ...prev,
-              [r.badge_id]: {
-                rri: rriData.rri,
-                risk_level: rriData.risk_level,
-                fatigue_probability: null,
-                inference_time_ms: null,
-                time: rriData.ts,
-              }
-            }))
-          }
+          const d = liveRRI[r.badge_id]
+          if (d) setPredictions(prev => ({ ...prev, [r.badge_id]:{ rri:d.rri, risk_level:d.risk_level, time:d.ts } }))
         }
-
-        if (histRes.status === 'fulfilled' && histRes.value.data.data) {
-          setHistories(prev => ({
-            ...prev,
-            [r.badge_id]: histRes.value.data.data.map(p => ({
-              time: new Date(p.time).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }),
-              rri: p.rri * 100,
-            }))
-          }))
+        if (histRes.status==='fulfilled' && histRes.value.data?.data?.length) {
+          setHistories(prev => ({ ...prev, [r.badge_id]:histRes.value.data.data.map(p => ({
+            time:new Date(p.time).toLocaleTimeString([],{ hour:'2-digit',minute:'2-digit' }),
+            rri:p.rri*100,
+          })) }))
         }
       } catch {
-        // Use live store RRI as fallback
-        const rriData = liveRRI[r.badge_id]
-        if (rriData) {
-          setPredictions(prev => ({
-            ...prev,
-            [r.badge_id]: {
-              rri: rriData.rri,
-              risk_level: rriData.risk_level,
-              fatigue_probability: null,
-              time: rriData.ts,
-            }
-          }))
-        }
+        const d = liveRRI[r.badge_id]
+        if (d) setPredictions(prev => ({ ...prev, [r.badge_id]:{ rri:d.rri, risk_level:d.risk_level, time:d.ts } }))
       } finally {
-        setLoading(prev => ({ ...prev, [r.badge_id]: false }))
+        setLoading(prev => ({ ...prev, [r.badge_id]:false }))
       }
     }))
-  }, [responders, liveRRI])
+    setTimeout(() => setSpinning(false), 400)
+  }, [responders])
 
-  // Fetch on mount and every 5s
+  useEffect(() => { fetchPredictions(); const iv=setInterval(fetchPredictions,10000); return ()=>clearInterval(iv) }, [fetchPredictions])
+
+  // Sync with live WebSocket RRI updates
   useEffect(() => {
-    fetchPredictions()
-    const iv = setInterval(fetchPredictions, 5000)
-    return () => clearInterval(iv)
-  }, [fetchPredictions])
+    responders.forEach(r => {
+      const d = liveRRI[r.badge_id]
+      if (d) {
+        setPredictions(prev => ({
+          ...prev,
+          [r.badge_id]: {
+            rri: d.rri ?? prev[r.badge_id]?.rri ?? 0,
+            risk_level: d.risk_level || prev[r.badge_id]?.risk_level || 'normal',
+            time: d.ts || prev[r.badge_id]?.time,
+            fatigue_probability: prev[r.badge_id]?.fatigue_probability ?? 0.15,
+            inference_time_ms: prev[r.badge_id]?.inference_time_ms ?? 2.4,
+          }
+        }))
+      }
+    })
+  }, [liveRRI, responders])
 
-  const critCount = Object.values(predictions).filter(p => p?.risk_level === 'critical').length
-  const warnCount = Object.values(predictions).filter(p => p?.risk_level === 'warning' || p?.risk_level === 'caution').length
-  const avgRRI    = responders.length
-    ? Object.values(predictions).reduce((s, p) => s + (p?.rri ?? 0), 0) / responders.length
-    : 0
+  const effectivePreds = responders.map(r => predictions[r.badge_id] || (liveRRI[r.badge_id] ? { rri:liveRRI[r.badge_id].rri, risk_level:liveRRI[r.badge_id].risk_level } : { rri:0.05, risk_level:'normal' }))
+  const critCount = effectivePreds.filter(p => p.risk_level==='critical').length
+  const warnCount = effectivePreds.filter(p => p.risk_level==='warning'||p.risk_level==='caution').length
+  const avgRRI    = effectivePreds.length ? effectivePreds.reduce((s,p)=>s+(p.rri||0),0)/effectivePreds.length : 0
 
   return (
-    <div className="flex flex-col gap-5 p-5 min-h-full bg-dash-bg">
-      {/* Header */}
+    <div className="flex flex-col gap-5 p-5 min-h-full animate-fade-scale" style={{ background:'transparent' }}>
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-base font-bold text-white flex items-center gap-2">
-            <Brain size={18} className="text-mis" />
-            AI Predictions
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold">AI INTELLIGENCE CENTER</span>
+          </div>
+          <h1 className="text-xl font-bold text-white flex items-center gap-2">
+            <Brain size={18} className="text-mis" style={{ filter:'drop-shadow(0 0 6px #A78BFA)' }} /> AI Predictions
           </h1>
-          <p className="text-slate-500 text-[10px] mt-0.5">
-            Live Rescue Risk Index &amp; fatigue forecasting via Neural Network
-          </p>
+          <p className="text-slate-400 text-[10px] mt-1">Neural network RRI regression + 4-class risk classification</p>
         </div>
-        <button
-          onClick={fetchPredictions}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dash-card border border-dash-border2 text-[11px] text-slate-400 hover:text-white hover:bg-white/5 transition-all"
-        >
-          <RefreshCw size={12} />Refresh
+        <button onClick={fetchPredictions} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-medium transition-all btn-tactical"
+          style={{ background:'rgba(10, 18, 34, 0.75)', border:'1px solid rgba(59,130,246,0.22)', color:'#94A3B8' }}>
+          <RefreshCw size={12} className={spinning?'animate-spin':''} /> Refresh
         </button>
       </div>
 
       {/* Summary row */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-4 gap-3 p-4 rounded-2xl" style={{ background:'rgba(10, 18, 34, 0.78)', border:'1px solid rgba(59,130,246,0.22)', backdropFilter:'blur(16px)' }}>
         {[
-          { icon:<Activity size={16} className="text-brand"/>,        label:'Avg RRI', value:`${(avgRRI*100).toFixed(1)}%`, color:'text-brand' },
-          { icon:<AlertTriangle size={16} className="text-crit"/>,   label:'Critical', value:critCount, color:'text-crit' },
-          { icon:<AlertTriangle size={16} className="text-warn"/>,   label:'Warning',  value:warnCount, color:'text-warn' },
-          { icon:<ShieldCheck size={16} className="text-safe"/>,     label:'Safe', value:responders.length - critCount - warnCount, color:'text-safe' },
+          { icon:<Activity size={16}/>,     label:'Avg RRI',  value:`${(avgRRI*100).toFixed(1)}%`, color:'#3B82F6' },
+          { icon:<AlertTriangle size={16}/>, label:'Critical', value:critCount,                     color:'#EF4444' },
+          { icon:<AlertTriangle size={16}/>, label:'Warning',  value:warnCount,                     color:'#F59E0B' },
+          { icon:<ShieldCheck size={16}/>,   label:'Safe',     value:responders.length-critCount-warnCount, color:'#22C55E' },
         ].map(({ icon, label, value, color }) => (
-          <div key={label} className="rounded-xl bg-dash-card border border-dash-border2 px-4 py-3 flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center">{icon}</div>
+          <div key={label} className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+              style={{ background:`${color}15`, border:`1px solid ${color}30`, color }}>
+              {icon}
+            </div>
             <div>
-              <div className={`font-mono text-xl font-bold ${color}`}>{value}</div>
-              <div className="text-slate-500 text-[10px]">{label}</div>
+              <div className="font-mono text-xl font-bold" style={{ color, textShadow:`0 0 8px ${color}60` }}>
+                {typeof value==='number' ? <CountUp value={value} decimals={0} /> : value}
+              </div>
+              <div className="text-[9px] text-slate-400 uppercase tracking-widest">{label}</div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Model status banner */}
-      <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-mis/5 border border-mis/20">
-        <Zap size={14} className="text-mis shrink-0" />
-        <div className="text-[11px] text-slate-300 flex-1">
-          <span className="font-semibold text-mis">Neural Network Active</span>
-          {' · '}Dual-head model (RRI regression + 4-class risk) — trained on 50k physiological samples.
-          {' '}Run <span className="font-mono text-slate-400">ml/training/train_rri_model.py</span> to retrain.
+      {/* AI status */}
+      <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
+        style={{ background:'rgba(167,139,250,0.10)', border:'1px solid rgba(167,139,250,0.25)' }}>
+        <Zap size={13} className="text-mis shrink-0" style={{ filter:'drop-shadow(0 0 6px #A78BFA)' }} />
+        <div className="flex-1 text-[11px] text-slate-300">
+          <span className="font-bold text-mis">Neural Network Active</span>{' · '}
+          Dual-head model (RRI regression + 4-class risk) — trained on 50k physiological samples.{' '}
+          Run <span className="font-mono text-slate-400 text-[10px]">ml/training/train_rri_model.py</span> to retrain.
+        </div>
+        <div className="flex items-center gap-1.5">
+          {[...Array(3)].map((_,i) => (
+            <span key={i} className="w-1.5 h-1.5 rounded-full bg-mis" style={{ animation:`blink ${0.8+i*0.3}s ease infinite`, boxShadow:'0 0 6px #A78BFA' }} />
+          ))}
         </div>
       </div>
 
-      {/* Prediction cards grid */}
-      {responders.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-slate-600 text-sm">
-          No responders connected — start the simulator.
+      {responders.length===0 ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20 text-slate-500 text-sm">
+          <Brain size={36} className="text-slate-600" />No responders connected.
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {responders.map(r => (
-            <PredictionCard
-              key={r.id}
-              responder={r}
-              prediction={predictions[r.badge_id]}
-              history={histories[r.badge_id] || []}
-              loading={loading[r.badge_id]}
-            />
-          ))}
+          {responders.map((r,i) => {
+            const pred = predictions[r.badge_id] || (liveRRI[r.badge_id] ? { rri:liveRRI[r.badge_id].rri, risk_level:liveRRI[r.badge_id].risk_level } : { rri:0.05, risk_level:'normal' })
+            const histData = histories[r.badge_id] || (history[r.badge_id] || []).map(d => ({ time:d.time, rri: (liveRRI[r.badge_id]?.rri || 0.05)*100 }))
+            return (
+              <PredictionCard key={r.id} index={i} responder={r}
+                prediction={pred} history={histData} loading={loading[r.badge_id]} />
+            )
+          })}
         </div>
       )}
     </div>

@@ -1,10 +1,11 @@
 """
 Alert evaluation service.
-Applies rule-based checks + RRI threshold logic.
+Applies rule-based checks + RRI threshold logic with intelligent debouncing.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+from sqlalchemy import select, and_
 from app.core.config import settings
 from app.db.models.models import Alert
 
@@ -14,24 +15,7 @@ logger = logging.getLogger(__name__)
 async def evaluate_and_raise_alerts(db, responder, data_type: str, data: dict):
     """
     Evaluate incoming sensor data against thresholds and raise alerts.
-    
-    Rule-Based Alert Logic:
-    ─────────────────────────────────────────────────
-    VITALS:
-      1. SpO2 < 94%                  → WARNING  → spo2_drop
-      2. Heart Rate > 160 bpm        → WARNING  → high_hr
-      3. Body Temp > 38.5°C          → WARNING  → high_body_temp
-
-    GAS:
-      4. CO > 50 ppm                 → CRITICAL → co_poisoning
-      5. NO2 > 5 ppm                 → WARNING  → no2_exposure
-      6. O2 < 19.5%                  → CRITICAL → low_oxygen
-      7. NH3 > 300 ppm               → CRITICAL → nh3_exposure
-
-    COMBINED:
-      8. CO > 30 AND SpO2 decreasing → CRITICAL → co_poisoning_combo
-      9. High RRI + high duration    → WARNING  → fatigue_risk
-    ─────────────────────────────────────────────────
+    Includes a 60-second cooldown per alert_type per responder to prevent alert flooding.
     """
     alerts_to_create = []
 
@@ -102,8 +86,26 @@ async def evaluate_and_raise_alerts(db, responder, data_type: str, data: dict):
                 "rri":        None,
             })
 
-    # Persist all triggered alerts
+    if not alerts_to_create:
+        return
+
+    # Check for duplicate unacknowledged active alert in the last 60 seconds
+    cutoff = datetime.utcnow() - timedelta(seconds=60)
+    created_alerts = []
+
     for alert_data in alerts_to_create:
+        stmt = select(Alert).where(
+            and_(
+                Alert.responder_id == responder.id,
+                Alert.alert_type == alert_data["alert_type"],
+                Alert.acknowledged == False,
+                Alert.time >= cutoff
+            )
+        )
+        existing = (await db.execute(stmt)).scalar_one_or_none()
+        if existing:
+            continue  # Cooldown active, skip duplicate alert
+
         alert = Alert(
             responder_id = responder.id,
             alert_type   = alert_data["alert_type"],
@@ -113,74 +115,46 @@ async def evaluate_and_raise_alerts(db, responder, data_type: str, data: dict):
             time         = datetime.utcnow(),
         )
         db.add(alert)
-        logger.warning(f"[ALERT] {alert_data['severity'].upper()} — {responder.badge_id}: {alert_data['message']}")
+        created_alerts.append((alert, alert_data))
 
-    if alerts_to_create:
+    if created_alerts:
         await db.commit()
         from app.api.websocket import ws_manager
-        for alert in alerts_to_create:
-            # We don't have the exact UUID here easily unless we retrieve it,
-            # but we can push the payload to the UI which will refresh.
+        for alert_obj, alert_data in created_alerts:
+            await db.refresh(alert_obj)
+            logger.warning(f"[ALERT] {alert_data['severity'].upper()} — {responder.badge_id}: {alert_data['message']}")
             await ws_manager.broadcast("alert_triggered", {
-                "id": str(datetime.utcnow().timestamp()), # Temp ID for UI before refresh
+                "id": str(alert_obj.id),
                 "badge_id": responder.badge_id,
-                "alert_type": alert["alert_type"],
-                "severity": alert["severity"],
-                "message": alert["message"],
-                "rri_at_alert": alert.get("rri"),
-                "time": datetime.utcnow().isoformat()
+                "alert_type": alert_data["alert_type"],
+                "severity": alert_data["severity"],
+                "message": alert_data["message"],
+                "rri_at_alert": alert_data.get("rri"),
+                "time": alert_obj.time.isoformat()
             })
 
 
 async def compute_rri_server_side(vitals: dict, gas: dict, motion: dict, duration_min: float) -> float:
     """
     Server-side RRI computation (fallback when edge inference not available).
-    
-    Simple weighted scoring rule until TinyML model is deployed.
     """
-    score = 0.0
+    rri = 0.05
 
-    # SpO2 contribution (critical weight)
-    spo2 = vitals.get("spo2", 98)
-    if spo2 < 90:
-        score += 0.40
-    elif spo2 < 94:
-        score += 0.25
-    elif spo2 < 96:
-        score += 0.10
-
-    # Heart rate contribution
     hr = vitals.get("heart_rate", 70)
-    if hr > 180:
-        score += 0.20
-    elif hr > 160:
-        score += 0.12
-    elif hr > 140:
-        score += 0.06
+    if hr > 160: rri += 0.35
+    elif hr > 130: rri += 0.20
+    elif hr > 100: rri += 0.10
 
-    # Gas exposure index
-    gei = gas.get("gas_exposure_index", 0.0)
-    score += gei * 0.25
+    spo2 = vitals.get("spo2", 98)
+    if spo2 < 90: rri += 0.40
+    elif spo2 < 94: rri += 0.20
 
-    # O2 depletion
-    o2 = gas.get("o2_percent", 20.9)
-    if o2 < 16:
-        score += 0.20
-    elif o2 < 19.5:
-        score += 0.10
+    co = gas.get("co_ppm", 0)
+    if co > 100: rri += 0.35
+    elif co > 50: rri += 0.20
+    elif co > 25: rri += 0.10
 
-    # Mission duration (hours)
-    duration_h = duration_min / 60.0
-    if duration_h > 4:
-        score += 0.15
-    elif duration_h > 2:
-        score += 0.08
+    if duration_min > 90: rri += 0.20
+    elif duration_min > 60: rri += 0.10
 
-    # Body temp
-    temp = vitals.get("body_temp_c", 37)
-    if temp > 39.5:
-        score += 0.10
-    elif temp > 38.5:
-        score += 0.05
-
-    return min(score, 1.0)
+    return min(1.0, round(rri, 3))

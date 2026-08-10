@@ -2,26 +2,24 @@ import { useState, useEffect } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   Shield, LayoutDashboard, Users, Map, BellRing, BarChart2,
-  Brain, Flag, Cpu, FileText, Settings, ChevronRight,
-  Wifi, WifiOff
+  Brain, Flag, Settings, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import useStore from '../../store/useStore'
 
 const NAV = [
-  { to: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/responders', icon: Users,            label: 'Responders' },
-  { to: '/map',        icon: Map,              label: 'Live Map' },
-  { to: '/alerts',     icon: BellRing,         label: 'Alerts',       badge: true },
-  { to: '/analytics',  icon: BarChart2,        label: 'Analytics' },
-  { to: '/ai',         icon: Brain,            label: 'AI Predictions' },
-  { to: '/mission',    icon: Flag,             label: 'Missions' },
-  { to: '/dashboard',  icon: Cpu,              label: 'Devices' },
-  { to: '/dashboard',  icon: FileText,         label: 'Reports' },
-  { to: '/dashboard',  icon: Settings,         label: 'Settings' },
+  { to:'/dashboard',  icon:LayoutDashboard, label:'Dashboard',   color:'#3B82F6' },
+  { to:'/responders', icon:Users,            label:'Responders',  color:'#22C55E' },
+  { to:'/map',        icon:Map,              label:'Live Map',    color:'#38BDF8' },
+  { to:'/alerts',     icon:BellRing,         label:'Alerts',      color:'#EF4444', badge:true },
+  { to:'/analytics',  icon:BarChart2,        label:'Analytics',   color:'#F59E0B' },
+  { to:'/ai',         icon:Brain,            label:'AI Intel',    color:'#A78BFA' },
+  { to:'/mission',    icon:Flag,             label:'Missions',    color:'#06B6D4' },
+  { to:'/dashboard',  icon:Settings,         label:'Settings',    color:'#64748B' },
 ]
 
 export default function Sidebar() {
   const { unacknowledgedCount, wsConnected } = useStore()
+  const [collapsed, setCollapsed] = useState(false)
   const [time, setTime] = useState(new Date())
 
   useEffect(() => {
@@ -29,67 +27,117 @@ export default function Sidebar() {
     return () => clearInterval(t)
   }, [])
 
+  const timeStr = time.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false })
+
   return (
-    <aside className="flex flex-col w-[200px] shrink-0 h-full bg-dash-sidebar border-r border-dash-border overflow-y-auto">
+    <aside
+      className="flex flex-col shrink-0 h-full transition-all duration-300 overflow-hidden"
+      style={{
+        width: collapsed ? 54 : 196,
+        background: 'rgba(6, 12, 24, 0.85)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        borderRight: '1px solid rgba(59, 130, 246, 0.2)',
+        boxShadow: '4px 0 30px rgba(0,0,0,0.5)',
+      }}
+    >
       {/* Logo */}
-      <div className="flex items-center gap-2.5 px-4 py-4 border-b border-dash-border2">
-        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-gradient-to-br from-blue-600 to-blue-400 shadow-glow">
-          <Shield size={18} className="text-white" />
+      <div className="flex items-center gap-2.5 px-3.5 py-3.5 shrink-0" style={{ borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+        <div
+          className="flex items-center justify-center w-8 h-8 rounded-xl shrink-0"
+          style={{ background:'linear-gradient(135deg, #1D4ED8, #7C3AED)', boxShadow:'0 0 14px rgba(59,130,246,0.45)' }}
+        >
+          <Shield size={14} className="text-white" />
         </div>
-        <div>
-          <div className="text-white font-bold text-sm tracking-wider leading-tight">RESCUE</div>
-          <div className="text-slate-500 text-[9px] tracking-widest uppercase leading-tight">Command System</div>
-        </div>
+        {!collapsed && (
+          <div className="overflow-hidden">
+            <div className="text-white font-bold text-[12px] tracking-widest uppercase leading-tight whitespace-nowrap">ResQ</div>
+            <div className="text-slate-400 text-[8px] tracking-widest uppercase leading-tight whitespace-nowrap">Command</div>
+          </div>
+        )}
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 py-3 px-2 flex flex-col gap-0.5">
-        {NAV.map(({ to, icon: Icon, label, expand, badge }) => (
+      <nav className="flex-1 py-3 px-2 flex flex-col gap-0.5 overflow-y-auto feed-scroll">
+        {NAV.map(({ to, icon:Icon, label, color, badge }) => (
           <NavLink
-            key={to}
+            key={label}
             to={to}
+            title={collapsed ? label : undefined}
             className={({ isActive }) =>
-              `flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-medium transition-all duration-150 group
-              ${isActive
-                ? 'bg-brand/15 text-brand border border-brand/20 shadow-glow'
-                : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
-              }`
+              `group relative flex items-center gap-2.5 rounded-xl transition-all duration-200
+               ${collapsed ? 'px-0 justify-center py-2.5' : 'px-3 py-2'}
+               ${isActive ? 'nav-item-active' : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.05]'}`
             }
           >
             {({ isActive }) => (
               <>
-                <Icon size={14} className={isActive ? 'text-brand' : 'text-slate-500 group-hover:text-slate-300'} />
-                <span className="flex-1 truncate">{label}</span>
+                <Icon
+                  size={15}
+                  style={{
+                    color: isActive ? color : undefined,
+                    filter: isActive ? `drop-shadow(0 0 6px ${color})` : undefined,
+                    transition:'all 0.2s', flexShrink:0
+                  }}
+                  className={!isActive ? 'group-hover:text-slate-200' : ''}
+                />
+                {!collapsed && (
+                  <span
+                    className="text-[11px] font-medium flex-1 truncate transition-transform duration-200 group-hover:translate-x-0.5"
+                    style={{ color: isActive ? color : undefined }}
+                  >
+                    {label}
+                  </span>
+                )}
                 {badge && unacknowledgedCount > 0 && (
-                  <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-crit text-white text-[9px] font-bold blink">
+                  <span
+                    className="flex items-center justify-center rounded-full text-white text-[8px] font-bold blink shrink-0"
+                    style={{ minWidth:16, height:16, background:'#EF4444', boxShadow:'0 0 8px rgba(239,68,68,0.6)', padding:'0 4px' }}
+                  >
                     {unacknowledgedCount}
                   </span>
                 )}
-                {expand && <ChevronRight size={11} className="text-slate-600 group-hover:text-slate-400" />}
               </>
             )}
           </NavLink>
         ))}
       </nav>
 
-      {/* User */}
-      <div className="border-t border-dash-border2 px-3 py-3">
-        <div className="flex items-center gap-2.5">
-          <div className="relative w-8 h-8 rounded-full bg-gradient-to-br from-brand to-blue-400 flex items-center justify-center text-white text-[11px] font-bold shrink-0">
+      {/* Collapse toggle */}
+      <button
+        onClick={() => setCollapsed(c => !c)}
+        className="flex items-center justify-center py-2 transition-all hover:bg-white/5 shrink-0"
+        style={{ borderTop:'1px solid rgba(255,255,255,0.06)' }}
+      >
+        {collapsed ? <ChevronRight size={12} className="text-slate-400" /> : <ChevronLeft size={12} className="text-slate-400" />}
+      </button>
+
+      {/* User area */}
+      <div
+        className={`px-3 py-3 shrink-0 ${collapsed ? 'flex justify-center' : ''}`}
+        style={{ borderTop:'1px solid rgba(255,255,255,0.06)' }}
+      >
+        {collapsed ? (
+          <div className="relative w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold"
+            style={{ background:'linear-gradient(135deg,#3B82F6,#8B5CF6)', boxShadow:'0 0 10px rgba(59,130,246,0.4)' }}
+          >
             C
-            <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-dash-sidebar ${wsConnected ? 'bg-safe' : 'bg-slate-500'}`} />
+            <span className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[#060C1A] ${wsConnected ? 'bg-safe' : 'bg-slate-500'}`} />
           </div>
-          <div className="min-w-0">
-            <div className="text-white text-[11px] font-semibold truncate">Commander</div>
-            <div className="text-slate-500 text-[9px] truncate">Mission Control</div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <div className="relative w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0"
+              style={{ background:'linear-gradient(135deg,#3B82F6,#8B5CF6)', boxShadow:'0 0 10px rgba(59,130,246,0.4)' }}
+            >
+              C
+              <span className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[#060C1A] ${wsConnected ? 'bg-safe' : 'bg-slate-500'}`} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-slate-200 text-[10px] font-semibold truncate">Commander</div>
+              <div className="text-slate-500 text-[8px] font-mono truncate">{timeStr}</div>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-1 mt-2">
-          <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? 'bg-safe blink' : 'bg-slate-500'}`} />
-          <span className={`text-[9px] ${wsConnected ? 'text-safe' : 'text-slate-500'}`}>
-            {wsConnected ? 'Online' : 'Offline'}
-          </span>
-        </div>
+        )}
       </div>
     </aside>
   )
